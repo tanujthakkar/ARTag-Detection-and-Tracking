@@ -185,12 +185,12 @@ class ARTag():
         testudo_img = cv2.bitwise_or(frame_mask, ar_tag_mask)
 
         if(visualize):
-            cv2.imshow("Testudo", testudo_img)
+            cv2.imshow("Superimpose", testudo_img)
             # cv2.imshow("AR Tag Mask", np.uint8(ar_tag_mask))
             cv2.waitKey(0)
 
 
-    def ProjectionMatrix(self, H, K):
+    def projection_matrix(self, H, K):
 
         h1, h2, h3 = H[:,0], H[:,1], H[:,2]
         K_inv = np.linalg.inv(K) 
@@ -210,7 +210,7 @@ class ARTag():
         P = K.dot(RTmatrix)
         return P
 
-    def getCubeCoordinates(self, P, cube_size = 128):
+    def computer_cube_corners(self, P, cube_size):
 
         x1,y1,z1 = P.dot([0,0,0,1])
         x2,y2,z2 = P.dot([0,cube_size,0,1])
@@ -224,30 +224,31 @@ class ARTag():
 
         X = [x1/z1 ,x2/z2 ,x3/z3 ,x4/z4 ,x5/z5 ,x6/z6 ,x7/z7 ,x8/z8] 
         Y = [y1/z1 ,y2/z2 ,y3/z3 ,y4/z4 ,y5/z5 ,y6/z6 ,y7/z7 ,y8/z8] 
-        XY = np.dstack((X,Y)).squeeze().astype(np.int32)
+        C = np.dstack((X,Y)).squeeze().astype(np.int32)
         
-        return XY
+        return C
 
-    def drawCube(self, im_org, XY):
-        im_print = im_org.copy()
-        for xy_pts in XY:
+    def draw_cube(self, frame, corners):
+        
+        frame = np.copy(frame)
+        for xy_pts in corners:
             x,y = xy_pts
-            cv2.circle(im_print,(x,y), 3, (0,0,255), -1)
+            cv2.circle(frame,(x,y), 3, (0,0,255), -1)
 
-        im_print = cv2.line(im_print,tuple(XY[0]),tuple(XY[1]), (0,255,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[0]),tuple(XY[2]), (0,255,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[0]),tuple(XY[4]), (0,255,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[1]),tuple(XY[3]), (0,225,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[1]),tuple(XY[5]), (0,225,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[2]),tuple(XY[6]), (0,200,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[2]),tuple(XY[3]), (0,200,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[3]),tuple(XY[7]), (0,175,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[4]),tuple(XY[5]), (0,150,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[4]),tuple(XY[6]), (0,150,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[5]),tuple(XY[7]), (0,125,255), 2)
-        im_print = cv2.line(im_print,tuple(XY[6]),tuple(XY[7]), (0,100,255), 2)
+        frame = cv2.line(frame,tuple(corners[0]),tuple(corners[1]), (0,255,255), 2)
+        frame = cv2.line(frame,tuple(corners[0]),tuple(corners[2]), (0,255,255), 2)
+        frame = cv2.line(frame,tuple(corners[0]),tuple(corners[4]), (0,255,255), 2)
+        frame = cv2.line(frame,tuple(corners[1]),tuple(corners[3]), (0,225,255), 2)
+        frame = cv2.line(frame,tuple(corners[1]),tuple(corners[5]), (0,225,255), 2)
+        frame = cv2.line(frame,tuple(corners[2]),tuple(corners[6]), (0,200,255), 2)
+        frame = cv2.line(frame,tuple(corners[2]),tuple(corners[3]), (0,200,255), 2)
+        frame = cv2.line(frame,tuple(corners[3]),tuple(corners[7]), (0,175,255), 2)
+        frame = cv2.line(frame,tuple(corners[4]),tuple(corners[5]), (0,150,255), 2)
+        frame = cv2.line(frame,tuple(corners[4]),tuple(corners[6]), (0,150,255), 2)
+        frame = cv2.line(frame,tuple(corners[5]),tuple(corners[7]), (0,125,255), 2)
+        frame = cv2.line(frame,tuple(corners[6]),tuple(corners[7]), (0,100,255), 2)
 
-        return im_print
+        return frame
 
     def project(self, frame, ar_tag_corners, cube_size, visualize):
 
@@ -257,13 +258,13 @@ class ARTag():
                       [0, 1355.933136, 654.8986796],
                       [0, 0, 1]])
 
-        P = self.ProjectionMatrix(np.linalg.pinv(H), K)
+        P = self.projection_matrix(np.linalg.pinv(H), K)
         
-        XY = self.getCubeCoordinates(P, cube_size)
-        cube = self.drawCube(frame, XY)
+        c = self.computer_cube_corners(P, cube_size)
+        cube = self.draw_cube(frame, c)
 
         if(visualize):
-            cv2.imshow("Cube", normalize(cube))
+            cv2.imshow("Projection", normalize(cube))
             cv2.waitKey(0)
 
         return cube
@@ -273,14 +274,20 @@ class ARTag():
         video = cv2.VideoCapture(video_path)
         ret = True
 
-        while(ret):
-            ret, frame = video.read()
-            frame = cv2.resize(frame, dsize=None, fx=0.4, fy=0.4, interpolation=cv2.INTER_CUBIC)
+        # video_writer = cv2.VideoWriter('video.avi', cv2.VideoWriter_fourcc('F','M','P','4'), 24, ())
 
-            frame, ar_tag, corners, H = self.detect(frame, visualize)
-            rotation, value = self.decode(ar_tag, visualize)
-            self.superimpose(frame, testudo_path, corners, rotation, visualize)
-            self.project(frame, corners, 128, visualize)
+        while(ret):
+
+            try:
+                ret, frame = video.read()
+                frame = cv2.resize(frame, dsize=None, fx=0.4, fy=0.4, interpolation=cv2.INTER_CUBIC)
+
+                frame, ar_tag, corners, H = self.detect(frame, visualize)
+                rotation, value = self.decode(ar_tag, visualize)
+                self.superimpose(frame, testudo_path, corners, rotation, visualize)
+                self.project(frame, corners, 128, visualize)
+            except Exception:
+                continue
 
 
 def main():

@@ -88,17 +88,9 @@ class ARTag():
 
     def compute_homography(self, w, h, c1):
         c2 = np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(4, 2) # Points on Warped Image
-
-        # H = cv2.getPerspectiveTransform(np.float32(c1), np.float32(c2))
         H = homography(np.float32(c1), np.float32(c2))
 
         return H
-
-    def rotate_image(self, image, angle):
-        image_center = tuple(np.array(image.shape[1::-1]) / 2)
-        rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
-        result = cv2.warpAffine(image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR)
-        return result
 
     def detect(self):
 
@@ -132,46 +124,20 @@ class ARTag():
             frame_ = cv2.bitwise_not(frame_)
             corners, w, h, frame_ = self.compute_corners(frame_)
             H = self.compute_homography(w, h, corners)
-            frame_ = cv2.warpPerspective(frame_gray, H, (w, h))
+            ar_tag = cv2.warpPerspective(frame_gray, H, (w, h))
+            # ar_tag = warp(frame_gray, H, np.zeros((w, h, 3)).astype(np.uint8))
 
             if(self.visualize):
                 cv2.imshow("Frame", frame)
-                cv2.imshow("Frame_", self.normalize(frame_))
+                cv2.imshow("AR Tag", self.normalize(ar_tag))
                 cv2.waitKey(0)
 
-        return frame_
-
-    def drawGrids(self, block, step = 8):
-        """
-        ref: http://study.marearts.com/2018/11/python-opencv-draw-grid-example-source.html
-        """
-    
-        # block  = cv2.resize(block, (512,512))
-        h,w = block.shape[:2]
-        
-        x = np.linspace(0, w, step).astype(np.int32)
-        y = np.linspace(0, h, step).astype(np.int32)
-
-        v_lines = []
-        h_lines = []
-        for i in range(step):
-            v_lines.append( [x[i], 0, x[i], w-1] )
-            h_lines.append( [0, int(y[i]), h-1, int(y[i])] )
-
-
-        for i in range(step):
-            [vx1, vy1, vx2, vy2] = v_lines[i]
-            [hx1, hy1, hx2, hy2] = h_lines[i]
-
-            block = cv2.line(block, (vx1,vy1), (vx2, vy2), (0,255,255),1 )
-            block = cv2.line(block, (hx1,hy1), (hx2, hy2), (0,255,255),1 )
-            
-        return block
+        return frame, ar_tag, corners, H
 
     def decode(self, img):
 
         frame = remove_padding(img)
-        h, w = frame.shape
+        h, w = frame.shape[:2]
         
         blocks = []
         rotate = 0
@@ -180,11 +146,12 @@ class ARTag():
                 for r in range(0, w, 32):
                     blocks.append(np.median(frame[c:c+32, r:r+32]))
             if blocks[-1] == 255:
-                print(rotate * 90)
                 break
             else:
                 frame = cv2.rotate(frame, cv2.cv2.ROTATE_90_CLOCKWISE)
             rotate += 1
+
+        # rotate = rotate * 90
 
         blocks = np.array(blocks).astype(np.int32)
         blocks[blocks < 255] = 0
@@ -197,6 +164,40 @@ class ARTag():
             cv2.waitKey(0)
 
         return rotate, tag_value
+
+    def superimpose(self, testudo_img):
+
+        frame, ar_tag, corners, H = self.detect()
+        rotation, value = self.decode(ar_tag)
+
+        testudo_img = cv2.imread(testudo_img)
+        testudo_img = rotate_img(testudo_img, rotation)
+        print(rotation, value)
+
+        h, w = testudo_img.shape[:2]
+        H = self.compute_homography(w, h, corners)
+        testudo_img = cv2.warpPerspective(testudo_img, np.linalg.inv(H), (frame.shape[1], frame.shape[0]))
+        # t = np.copy(testudo_img)
+
+        _, warpedTestudo_mask = cv2.threshold(cv2.cvtColor(testudo_img, cv2.COLOR_BGR2GRAY), 20, 255, cv2.THRESH_BINARY_INV)
+        warpedTestudo_mask = np.dstack((warpedTestudo_mask,warpedTestudo_mask,warpedTestudo_mask))
+        testudo_img = cv2.bitwise_or(testudo_img, warpedTestudo_mask)
+
+        _, ar_tag_mask = cv2.threshold(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 220, 255, cv2.THRESH_BINARY_INV)
+        ar_tag_mask = cv2.fillPoly(np.copy(ar_tag_mask), pts = [corners], color=(125))
+        ar_tag_mask[ar_tag_mask != 125] = 0
+        ar_tag_mask[ar_tag_mask == 125] = 255
+        ar_tag_mask = np.dstack((ar_tag_mask,ar_tag_mask,ar_tag_mask))
+        ar_tag_mask = cv2.bitwise_and(testudo_img, ar_tag_mask)
+
+        frame_mask = cv2.fillPoly(np.copy(frame), pts = [corners], color=(0))
+
+        testudo_img = cv2.bitwise_or(frame_mask, ar_tag_mask)
+
+        if(self.visualize):
+            cv2.imshow("Testudo", testudo_img)
+            cv2.imshow("AR Tag Mask", np.uint8(ar_tag_mask))
+            cv2.waitKey(0)
 
     def ProjectionMatrix(self, H, K):
 
@@ -308,15 +309,18 @@ class ARTag():
 def main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument('--VideoPath', type=str, default="../Data/1tagvideo.mp4", help='Path to the video file')
+    Parser.add_argument('--TestudoPath', type=str, default="../Data/testudo.png", help='Path to the testudo image')
     Parser.add_argument('--Visualize', action='store_true', help='Toggle visualization')
     
     Args = Parser.parse_args()
     VideoPath = Args.VideoPath
+    TestudoPath = Args.TestudoPath
     Visualize = Args.Visualize
 
     AR = ARTag(VideoPath, Visualize)
-    frame = AR.detect()
-    rotation, value = AR.decode(frame)
+    # frame, ar_tag = AR.detect()
+    # rotation, value = AR.decode(ar_tag)
+    AR.superimpose(TestudoPath)
     # AR.project()
 
 

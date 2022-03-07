@@ -28,24 +28,23 @@ sys.dont_write_bytecode = True
 
 class ARTag():
 
-    def __init__(self, video_path, visualize):
-        self.video_path = video_path
-        self.visualize = visualize
-
-    def normalize(self, img):
-        return np.uint8(cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX))
+    def __init__(self):
+        pass
 
     def fft(self, img):
+        # Reference - https://akshaysin.github.io/fourier_transform.html
 
         dft = cv2.dft(np.float32(img), flags=cv2.DFT_COMPLEX_OUTPUT)
         dft_shift = np.fft.fftshift(dft)
         magnitude_spectrum = 20*np.log(cv2.magnitude(dft_shift[:,:,0],dft_shift[:,:,1]))
+        
         return dft_shift, magnitude_spectrum
 
     def high_pass_filter(self, img, dft_shift):
+        # Reference - https://akshaysin.github.io/fourier_transform.html
 
         rows, cols = img.shape
-        crow, ccol = int(rows / 2), int(cols / 2)  # center
+        crow, ccol = int(rows / 2), int(cols / 2)
 
         mask = np.ones((rows, cols, 2), np.uint8)
         r = 100
@@ -92,63 +91,57 @@ class ARTag():
 
         return H
 
-    def detect(self):
+    def detect(self, frame, visualize):
 
-        video = cv2.VideoCapture(self.video_path)
-        
-        currentframe = 0
-        ret = True
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        if(ret):
-            ret, frame = video.read()
-            frame = cv2.resize(frame, dsize=None, fx=0.4, fy=0.4, interpolation=cv2.INTER_CUBIC)
-            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        (thresh, frame_gray) = cv2.threshold(frame_gray, 220, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        kernel = np.ones((5,5),np.uint8)
+        frame_gray = cv2.morphologyEx(frame_gray, cv2.MORPH_OPEN, kernel)
 
-            (thresh, frame_gray) = cv2.threshold(frame_gray, 220, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-            kernel = np.ones((5,5),np.uint8)
-            frame_gray = cv2.morphologyEx(frame_gray, cv2.MORPH_OPEN, kernel)
+        dft_shift, frame_fft = self.fft(frame_gray)
+        frame_fft_mask, edges = self.high_pass_filter(frame_gray, dft_shift)
+        edges = normalize(edges)
+        edges[edges < 90] = 0
+        edges[edges >= 90] = 255
 
-            dft_shift, frame_fft = self.fft(frame_gray)
-            frame_fft_mask, edges = self.high_pass_filter(frame_gray, dft_shift)
-            edges = self.normalize(edges)
-            edges[edges < 90] = 0
-            edges[edges >= 90] = 255
+        corners, w, h, frame_ = self.compute_corners(edges)
+        mask = cv2.fillPoly(np.copy(frame_), pts = [corners], color =(255,255,255))
+        kernel = np.ones((9, 9), np.uint8)
+        mask = cv2.erode(mask, kernel) 
+        mask = cv2.bitwise_not(mask)
 
-            corners, w, h, frame_ = self.compute_corners(edges)
-            mask = cv2.fillPoly(np.copy(frame_), pts = [corners], color =(255,255,255))
-            kernel = np.ones((9, 9), np.uint8)
-            mask = cv2.erode(mask, kernel) 
-            mask = cv2.bitwise_not(mask)
+        frame_ = cv2.bitwise_or(frame_gray, mask)
+        frame_ = cv2.bitwise_not(frame_)
+        corners, w, h, frame_ = self.compute_corners(frame_)
+        H = self.compute_homography(w, h, corners)
+        # ar_tag = cv2.warpPerspective(frame_gray, H, (w, h))
+        ar_tag = warp_perspective(H, frame_gray, w, h)
 
-            frame_ = cv2.bitwise_or(frame_gray, mask)
-            frame_ = cv2.bitwise_not(frame_)
-            corners, w, h, frame_ = self.compute_corners(frame_)
-            H = self.compute_homography(w, h, corners)
-            ar_tag = cv2.warpPerspective(frame_gray, H, (w, h))
-            # ar_tag = warp(frame_gray, H, np.zeros((w, h, 3)).astype(np.uint8))
+        cv2.polylines(frame, [corners], True, (0,0,255))
 
-            if(self.visualize):
-                cv2.imshow("Frame", frame)
-                cv2.imshow("AR Tag", self.normalize(ar_tag))
-                cv2.waitKey(0)
+        if(visualize):
+            cv2.imshow("Frame", frame)
+            cv2.imshow("AR Tag", normalize(ar_tag))
+            cv2.waitKey(0)
 
         return frame, ar_tag, corners, H
 
-    def decode(self, img):
+    def decode(self, ar_tag, visualize):
 
-        frame = remove_padding(img)
-        h, w = frame.shape[:2]
+        ar_tag = remove_padding(ar_tag)
+        h, w = ar_tag.shape[:2]
         
-        blocks = []
         rotate = 0
-        while True:
+        for i in range(4):
+            blocks = []
             for c in range(0, h, 32):
                 for r in range(0, w, 32):
-                    blocks.append(np.median(frame[c:c+32, r:r+32]))
+                    blocks.append(np.median(ar_tag[c:c+32, r:r+32]))
             if blocks[-1] == 255:
                 break
             else:
-                frame = cv2.rotate(frame, cv2.cv2.ROTATE_90_CLOCKWISE)
+                ar_tag = cv2.rotate(ar_tag, cv2.cv2.ROTATE_90_CLOCKWISE)
             rotate += 1
 
         # rotate = rotate * 90
@@ -157,47 +150,45 @@ class ARTag():
         blocks[blocks < 255] = 0
         blocks[blocks >= 255] = 1
 
-        tag_value = ((blocks[5] * 8) + (blocks[6] * 4) + (blocks[10] * 2) + (blocks[9] * 1))        
+        tag_value = ((blocks[5] * 8) + (blocks[6] * 4) + (blocks[10] * 2) + (blocks[9] * 1))
 
-        if(self.visualize):
-            cv2.imshow("Frame", frame)
+        ar_tag = draw_grid(ar_tag, 5)
+
+        if(visualize):
+            cv2.imshow("AR Tag Decoded", ar_tag)
             cv2.waitKey(0)
 
         return rotate, tag_value
 
-    def superimpose(self, testudo_img):
-
-        frame, ar_tag, corners, H = self.detect()
-        rotation, value = self.decode(ar_tag)
+    def superimpose(self, frame, testudo_img, ar_tag_corners, rotation, visualize):
 
         testudo_img = cv2.imread(testudo_img)
         testudo_img = rotate_img(testudo_img, rotation)
-        print(rotation, value)
 
         h, w = testudo_img.shape[:2]
-        H = self.compute_homography(w, h, corners)
+        H = self.compute_homography(w, h, ar_tag_corners)
         testudo_img = cv2.warpPerspective(testudo_img, np.linalg.inv(H), (frame.shape[1], frame.shape[0]))
-        # t = np.copy(testudo_img)
 
         _, warpedTestudo_mask = cv2.threshold(cv2.cvtColor(testudo_img, cv2.COLOR_BGR2GRAY), 20, 255, cv2.THRESH_BINARY_INV)
         warpedTestudo_mask = np.dstack((warpedTestudo_mask,warpedTestudo_mask,warpedTestudo_mask))
         testudo_img = cv2.bitwise_or(testudo_img, warpedTestudo_mask)
 
         _, ar_tag_mask = cv2.threshold(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 220, 255, cv2.THRESH_BINARY_INV)
-        ar_tag_mask = cv2.fillPoly(np.copy(ar_tag_mask), pts = [corners], color=(125))
+        ar_tag_mask = cv2.fillPoly(np.copy(ar_tag_mask), pts = [ar_tag_corners], color=(125))
         ar_tag_mask[ar_tag_mask != 125] = 0
         ar_tag_mask[ar_tag_mask == 125] = 255
         ar_tag_mask = np.dstack((ar_tag_mask,ar_tag_mask,ar_tag_mask))
         ar_tag_mask = cv2.bitwise_and(testudo_img, ar_tag_mask)
 
-        frame_mask = cv2.fillPoly(np.copy(frame), pts = [corners], color=(0))
+        frame_mask = cv2.fillPoly(np.copy(frame), pts = [ar_tag_corners], color=(0))
 
         testudo_img = cv2.bitwise_or(frame_mask, ar_tag_mask)
 
-        if(self.visualize):
+        if(visualize):
             cv2.imshow("Testudo", testudo_img)
-            cv2.imshow("AR Tag Mask", np.uint8(ar_tag_mask))
+            # cv2.imshow("AR Tag Mask", np.uint8(ar_tag_mask))
             cv2.waitKey(0)
+
 
     def ProjectionMatrix(self, H, K):
 
@@ -219,7 +210,7 @@ class ARTag():
         P = K.dot(RTmatrix)
         return P
 
-    def getCubeCoordinates(self, P,cube_size = 128):
+    def getCubeCoordinates(self, P, cube_size = 128):
 
         x1,y1,z1 = P.dot([0,0,0,1])
         x2,y2,z2 = P.dot([0,cube_size,0,1])
@@ -258,70 +249,57 @@ class ARTag():
 
         return im_print
 
-    def project(self):
-        video = cv2.VideoCapture(self.video_path)
+    def project(self, frame, ar_tag_corners, cube_size, visualize):
+
+        H = self.compute_homography(cube_size, cube_size, ar_tag_corners)
+
+        K = np.array([[1346.100595, 0, 932.1633975],
+                      [0, 1355.933136, 654.8986796],
+                      [0, 0, 1]])
+
+        P = self.ProjectionMatrix(np.linalg.pinv(H), K)
         
-        currentframe = 0
+        XY = self.getCubeCoordinates(P, cube_size)
+        cube = self.drawCube(frame, XY)
+
+        if(visualize):
+            cv2.imshow("Cube", normalize(cube))
+            cv2.waitKey(0)
+
+        return cube
+
+    def process_video(self, video_path, testudo_path, action, visualize):
+
+        video = cv2.VideoCapture(video_path)
         ret = True
 
         while(ret):
             ret, frame = video.read()
             frame = cv2.resize(frame, dsize=None, fx=0.4, fy=0.4, interpolation=cv2.INTER_CUBIC)
-            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-            (thresh, frame_gray) = cv2.threshold(frame_gray, 220, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-            kernel = np.ones((5,5),np.uint8)
-            frame_gray = cv2.morphologyEx(frame_gray, cv2.MORPH_OPEN, kernel)
+            frame, ar_tag, corners, H = self.detect(frame, visualize)
+            rotation, value = self.decode(ar_tag, visualize)
+            self.superimpose(frame, testudo_path, corners, rotation, visualize)
+            self.project(frame, corners, 128, visualize)
 
-            dft_shift, frame_fft = self.fft(frame_gray)
-            frame_fft_mask, edges = self.high_pass_filter(frame_gray, dft_shift)
-            edges = self.normalize(edges)
-            edges[edges < 90] = 0
-            edges[edges >= 90] = 255
-
-            corners, w, h, frame_ = self.compute_corners(edges)
-            mask = cv2.fillPoly(np.copy(frame_), pts = [corners], color = (255,255,255))
-            kernel = np.ones((9, 9), np.uint8)
-            mask = cv2.erode(mask, kernel) 
-            mask = cv2.bitwise_not(mask)
-
-            frame_ = cv2.bitwise_or(frame_gray, mask)
-            frame_ = cv2.bitwise_not(frame_)
-            corners, w, h, frame_ = self.compute_corners(frame_)
-            H = self.compute_homography(128, 128, corners)
-
-            K = np.array([[1346.100595, 0, 932.1633975],
-                          [0, 1355.933136, 654.8986796],
-                          [0, 0, 1]])
-
-            P = self.ProjectionMatrix(np.linalg.pinv(H), K)
-            
-            XY = self.getCubeCoordinates(P, cube_size = 128)
-            frame_ = self.drawCube(frame, XY)
-
-            if(self.visualize):
-                cv2.imshow("Frame", frame)
-                cv2.imshow("Frame_", self.normalize(frame_))
-                cv2.waitKey(0)
-
-        return frame_
 
 def main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument('--VideoPath', type=str, default="../Data/1tagvideo.mp4", help='Path to the video file')
     Parser.add_argument('--TestudoPath', type=str, default="../Data/testudo.png", help='Path to the testudo image')
+    Parser.add_argument('--Action', type=str, default="detect", help='Select action to perform from [Detect, Decode, Superimpose, Project]', choices=('Detect', 'Decode', 'Superimpose', 'Project'))
     Parser.add_argument('--Visualize', action='store_true', help='Toggle visualization')
+    Parser.add_argument('--SaveResult', action='store_true', help='Toggle to save results')
     
     Args = Parser.parse_args()
     VideoPath = Args.VideoPath
+    Action = Args.Action
     TestudoPath = Args.TestudoPath
     Visualize = Args.Visualize
+    SaveResult = Args.SaveResult
 
-    AR = ARTag(VideoPath, Visualize)
-    # frame, ar_tag = AR.detect()
-    # rotation, value = AR.decode(ar_tag)
-    AR.superimpose(TestudoPath)
-    # AR.project()
+    AR = ARTag()
+    AR.process_video(VideoPath, TestudoPath, Action, Visualize)
 
 
 if __name__ == '__main__':

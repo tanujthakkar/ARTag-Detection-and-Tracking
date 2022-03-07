@@ -16,11 +16,13 @@ import cv2
 import os
 import numpy as np
 
+sys.dont_write_bytecode = True
 
 def normalize(img):
     return np.uint8(cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX))
 
-def warp_perspective(H,img, w, h):
+def warp_perspective(img, H, w, h):
+
     H_inv=np.linalg.inv(H)
     warped=np.zeros((h,w,3),np.uint8)
     for a in range(h):
@@ -29,7 +31,23 @@ def warp_perspective(H,img, w, h):
             f = np.reshape(f,(3,1))
             x, y, z = np.matmul(H_inv,f)
             warped[a][b] = img[int(y/z)][int(x/z)]
-    return(warped)
+
+    return warped
+
+def warp_perspective_(img, H, w, h):
+
+    h_, w_ = img.shape[:2]
+
+    warped=np.zeros((h,w,3),np.uint8)
+    for a in range(w_):
+        for b in range(h_):
+            mat = np.dot(H, [a,b,1])
+            i, j, _ = (mat/mat[2]).astype(int)
+
+            if 0 <= i < w-1 and 0 <= j < h-1:
+                warped[j,i,:] = img[b,a,:]
+            
+    return warped
 
 def remove_padding(img):
 
@@ -71,7 +89,6 @@ def remove_padding(img):
 
     return img
 
-
 def draw_grid(img, step):
 
     h,w = img.shape[:2]
@@ -94,6 +111,65 @@ def draw_grid(img, step):
 
     return img
 
+def projection_matrix(H, K):
+
+    h1, h2, h3 = H[:,0], H[:,1], H[:,2]
+    K_inv = np.linalg.inv(K) 
+    lamda = 2/(np.linalg.norm(K_inv.dot(h1)) + np.linalg.norm(K_inv.dot(h2)) )
+    
+    B_ = lamda*K_inv.dot(H)
+
+    if np.linalg.det(B_) > 0 :
+        B = B_
+    else:
+        B = - B_
+
+    r1, r2, r3 = B[:,0], B[:,1], np.cross(B[:,0], B[:,1])
+    t = B[:,2]
+
+    RTmatrix = np.dstack((r1,r2,r3,t)).squeeze()
+    P = K.dot(RTmatrix)
+    return P
+
+def computer_cube_corners(P, cube_size):
+
+    x1,y1,z1 = P.dot([0,0,0,1])
+    x2,y2,z2 = P.dot([0,cube_size,0,1])
+    x3,y3,z3 = P.dot([cube_size,0,0,1])
+    x4,y4,z4 = P.dot([cube_size,cube_size,0,1])
+
+    x5,y5,z5 = P.dot([0,0,-cube_size,1])
+    x6,y6,z6 = P.dot([0,cube_size,-cube_size,1])
+    x7,y7,z7 = P.dot([cube_size,0,-cube_size,1])
+    x8,y8,z8 = P.dot([cube_size,cube_size,-cube_size,1])
+
+    X = [x1/z1 ,x2/z2 ,x3/z3 ,x4/z4 ,x5/z5 ,x6/z6 ,x7/z7 ,x8/z8] 
+    Y = [y1/z1 ,y2/z2 ,y3/z3 ,y4/z4 ,y5/z5 ,y6/z6 ,y7/z7 ,y8/z8] 
+    C = np.dstack((X,Y)).squeeze().astype(np.int32)
+    
+    return C
+
+def draw_cube(frame, corners):
+    
+    frame = np.copy(frame)
+    for xy_pts in corners:
+        x,y = xy_pts
+        cv2.circle(frame,(x,y), 3, (0,0,255), -1)
+
+    frame = cv2.line(frame,tuple(corners[0]),tuple(corners[1]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[0]),tuple(corners[2]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[0]),tuple(corners[4]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[1]),tuple(corners[3]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[1]),tuple(corners[5]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[2]),tuple(corners[6]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[2]),tuple(corners[3]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[3]),tuple(corners[7]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[4]),tuple(corners[5]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[4]),tuple(corners[6]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[5]),tuple(corners[7]), (0,0,255), 2)
+    frame = cv2.line(frame,tuple(corners[6]),tuple(corners[7]), (0,0,255), 2)
+
+    return frame
 
 def homography(p1, p2):
     p1, p2 = p1.squeeze(), p2.squeeze()

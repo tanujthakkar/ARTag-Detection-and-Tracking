@@ -115,8 +115,7 @@ class ARTag():
         frame_ = cv2.bitwise_not(frame_)
         corners, w, h, frame_ = self.compute_corners(frame_)
         H = self.compute_homography(w, h, corners)
-        # ar_tag = cv2.warpPerspective(frame_gray, H, (w, h))
-        ar_tag = warp_perspective(H, frame_gray, w, h)
+        ar_tag = warp_perspective(frame_gray, H, w, h)
 
         cv2.polylines(frame, [corners], True, (0,0,255))
 
@@ -167,7 +166,7 @@ class ARTag():
 
         h, w = testudo_img.shape[:2]
         H = self.compute_homography(w, h, ar_tag_corners)
-        testudo_img = cv2.warpPerspective(testudo_img, np.linalg.inv(H), (frame.shape[1], frame.shape[0]))
+        testudo_img = warp_perspective_(testudo_img, np.linalg.inv(H), frame.shape[1], frame.shape[0])
 
         _, warpedTestudo_mask = cv2.threshold(cv2.cvtColor(testudo_img, cv2.COLOR_BGR2GRAY), 20, 255, cv2.THRESH_BINARY_INV)
         warpedTestudo_mask = np.dstack((warpedTestudo_mask,warpedTestudo_mask,warpedTestudo_mask))
@@ -189,67 +188,6 @@ class ARTag():
             # cv2.imshow("AR Tag Mask", np.uint8(ar_tag_mask))
             cv2.waitKey(0)
 
-
-    def projection_matrix(self, H, K):
-
-        h1, h2, h3 = H[:,0], H[:,1], H[:,2]
-        K_inv = np.linalg.inv(K) 
-        lamda = 2/(np.linalg.norm(K_inv.dot(h1)) + np.linalg.norm(K_inv.dot(h2)) )
-        
-        B_ = lamda*K_inv.dot(H)
-
-        if np.linalg.det(B_) > 0 :
-            B = B_
-        else:
-            B = - B_
-
-        r1, r2, r3 = B[:,0], B[:,1], np.cross(B[:,0], B[:,1])
-        t = B[:,2]
-
-        RTmatrix = np.dstack((r1,r2,r3,t)).squeeze()
-        P = K.dot(RTmatrix)
-        return P
-
-    def computer_cube_corners(self, P, cube_size):
-
-        x1,y1,z1 = P.dot([0,0,0,1])
-        x2,y2,z2 = P.dot([0,cube_size,0,1])
-        x3,y3,z3 = P.dot([cube_size,0,0,1])
-        x4,y4,z4 = P.dot([cube_size,cube_size,0,1])
-
-        x5,y5,z5 = P.dot([0,0,-cube_size,1])
-        x6,y6,z6 = P.dot([0,cube_size,-cube_size,1])
-        x7,y7,z7 = P.dot([cube_size,0,-cube_size,1])
-        x8,y8,z8 = P.dot([cube_size,cube_size,-cube_size,1])
-
-        X = [x1/z1 ,x2/z2 ,x3/z3 ,x4/z4 ,x5/z5 ,x6/z6 ,x7/z7 ,x8/z8] 
-        Y = [y1/z1 ,y2/z2 ,y3/z3 ,y4/z4 ,y5/z5 ,y6/z6 ,y7/z7 ,y8/z8] 
-        C = np.dstack((X,Y)).squeeze().astype(np.int32)
-        
-        return C
-
-    def draw_cube(self, frame, corners):
-        
-        frame = np.copy(frame)
-        for xy_pts in corners:
-            x,y = xy_pts
-            cv2.circle(frame,(x,y), 3, (0,0,255), -1)
-
-        frame = cv2.line(frame,tuple(corners[0]),tuple(corners[1]), (0,255,255), 2)
-        frame = cv2.line(frame,tuple(corners[0]),tuple(corners[2]), (0,255,255), 2)
-        frame = cv2.line(frame,tuple(corners[0]),tuple(corners[4]), (0,255,255), 2)
-        frame = cv2.line(frame,tuple(corners[1]),tuple(corners[3]), (0,225,255), 2)
-        frame = cv2.line(frame,tuple(corners[1]),tuple(corners[5]), (0,225,255), 2)
-        frame = cv2.line(frame,tuple(corners[2]),tuple(corners[6]), (0,200,255), 2)
-        frame = cv2.line(frame,tuple(corners[2]),tuple(corners[3]), (0,200,255), 2)
-        frame = cv2.line(frame,tuple(corners[3]),tuple(corners[7]), (0,175,255), 2)
-        frame = cv2.line(frame,tuple(corners[4]),tuple(corners[5]), (0,150,255), 2)
-        frame = cv2.line(frame,tuple(corners[4]),tuple(corners[6]), (0,150,255), 2)
-        frame = cv2.line(frame,tuple(corners[5]),tuple(corners[7]), (0,125,255), 2)
-        frame = cv2.line(frame,tuple(corners[6]),tuple(corners[7]), (0,100,255), 2)
-
-        return frame
-
     def project(self, frame, ar_tag_corners, cube_size, visualize):
 
         H = self.compute_homography(cube_size, cube_size, ar_tag_corners)
@@ -258,10 +196,10 @@ class ARTag():
                       [0, 1355.933136, 654.8986796],
                       [0, 0, 1]])
 
-        P = self.projection_matrix(np.linalg.pinv(H), K)
+        P = projection_matrix(np.linalg.pinv(H), K)
         
-        c = self.computer_cube_corners(P, cube_size)
-        cube = self.draw_cube(frame, c)
+        c = computer_cube_corners(P, cube_size)
+        cube = draw_cube(frame, c)
 
         if(visualize):
             cv2.imshow("Projection", normalize(cube))

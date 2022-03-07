@@ -112,21 +112,21 @@ class ARTagDetector():
             frame_fft_mask, edges = self.high_pass_filter(frame_gray, dft_shift)
             edges = self.normalize(edges)
             
-            corners, w, h, frame = self.compute_corners(frame, 220)
+            corners, w, h, frame_ = self.compute_corners(frame, 220)
             H = self.compute_homography(w, h, corners)
             frame_ = cv2.warpPerspective(frame, H, (w, h))
 
-            frame_ = cv2.bitwise_not(frame_)
-            frame_[:5] = 0
-            frame_[:,:5] = 0
-            frame_[-5:] = 0
-            frame_[:,-5:] = 0
-            frame_ = self.rotate_image(frame_, 45)
+            # frame_ = cv2.bitwise_not(frame_)
+            # frame_[:5] = 0
+            # frame_[:,:5] = 0
+            # frame_[-5:] = 0
+            # frame_[:,-5:] = 0
+            # frame_ = self.rotate_image(frame_, 45)
 
-            corners, w, h, frame = self.compute_corners(frame_, 225)
-            H = self.compute_homography(w, h, corners)
-            frame_ = cv2.warpPerspective(frame, H, (w, h))
-            frame_ = cv2.bitwise_not(frame_)
+            # corners, w, h, frame = self.compute_corners(frame_, 225)
+            # H = self.compute_homography(w, h, corners)
+            # frame_ = cv2.warpPerspective(frame, H, (w, h))
+            # frame_ = cv2.bitwise_not(frame_)
 
             if(self.visualize):
                 cv2.imshow("Frame", frame)

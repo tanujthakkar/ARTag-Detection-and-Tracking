@@ -90,7 +90,7 @@ class ARTag():
         c2 = np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(4, 2) # Points on Warped Image
 
         # H = cv2.getPerspectiveTransform(np.float32(c1), np.float32(c2))
-        H = Homography(np.float32(c1), np.float32(c2))
+        H = homography(np.float32(c1), np.float32(c2))
 
         return H
 
@@ -107,7 +107,7 @@ class ARTag():
         currentframe = 0
         ret = True
 
-        while(ret):
+        if(ret):
             ret, frame = video.read()
             frame = cv2.resize(frame, dsize=None, fx=0.4, fy=0.4, interpolation=cv2.INTER_CUBIC)
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -132,17 +132,11 @@ class ARTag():
             frame_ = cv2.bitwise_not(frame_)
             corners, w, h, frame_ = self.compute_corners(frame_)
             H = self.compute_homography(w, h, corners)
-            frame_ = cv2.warpPerspective(frame, H, (w, h))
+            frame_ = cv2.warpPerspective(frame_gray, H, (w, h))
 
             if(self.visualize):
                 cv2.imshow("Frame", frame)
                 cv2.imshow("Frame_", self.normalize(frame_))
-                # cv2.imshow("Frame Gray", np.uint8(frame_gray))
-                # cv2.imshow("Mask", np.uint8(mask))
-                # cv2.imshow("FFT", self.normalize(frame_fft))
-                # cv2.imshow("FFT + Mask", self.normalize(frame_fft_mask))
-                # cv2.imshow("Edges", self.normalize(edges))
-                # cv2.imshow("Corners", self.normalize(corners))
                 cv2.waitKey(0)
 
         return frame_
@@ -176,13 +170,33 @@ class ARTag():
 
     def decode(self, img):
 
-        frame = cv2.resize(img, (128,128), interpolation=cv2.INTER_CUBIC)
-        frame = self.drawGrids(frame)
-        # frame = self.crop_AR(frame)
+        frame = remove_padding(img)
+        h, w = frame.shape
+        
+        blocks = []
+        rotate = 0
+        while True:
+            for c in range(0, h, 32):
+                for r in range(0, w, 32):
+                    blocks.append(np.median(frame[c:c+32, r:r+32]))
+            if blocks[-1] == 255:
+                print(rotate * 90)
+                break
+            else:
+                frame = cv2.rotate(frame, cv2.cv2.ROTATE_90_CLOCKWISE)
+            rotate += 1
+
+        blocks = np.array(blocks).astype(np.int32)
+        blocks[blocks < 255] = 0
+        blocks[blocks >= 255] = 1
+
+        tag_value = ((blocks[5] * 8) + (blocks[6] * 4) + (blocks[10] * 2) + (blocks[9] * 1))        
 
         if(self.visualize):
             cv2.imshow("Frame", frame)
             cv2.waitKey(0)
+
+        return rotate, tag_value
 
     def ProjectionMatrix(self, H, K):
 
@@ -302,7 +316,7 @@ def main():
 
     AR = ARTag(VideoPath, Visualize)
     frame = AR.detect()
-    # AR.decode(frame)
+    rotation, value = AR.decode(frame)
     # AR.project()
 
 

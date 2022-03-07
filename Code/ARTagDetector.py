@@ -44,7 +44,7 @@ class ARTagDetector():
         crow, ccol = int(rows / 2), int(cols / 2)  # center
 
         mask = np.ones((rows, cols, 2), np.uint8)
-        r = 200
+        r = 100
         center = [crow, ccol]
         x, y = np.ogrid[:rows, :cols]
         mask_area = (x - center[0]) ** 2 + (y - center[1]) ** 2 <= r*r
@@ -61,10 +61,10 @@ class ARTagDetector():
 
         return fshift_mask_mag, img_back
 
-    def compute_corners(self, img):
+    def compute_corners(self, img, thresh):
 
-        img[img < 225] = 0
-        img[img >= 225] = 255
+        img[img < thresh] = 0
+        img[img >= thresh] = 255
         idx = np.where(img == 255)
         r = list(idx[0])
         c = list(idx[1])
@@ -74,37 +74,59 @@ class ARTagDetector():
                        (c[r.index(max(r))], max(r)),
                        (max(c), r[c.index(max(c))])])
 
-        cv2.circle(img, c[0], 2, (0,0,255),-1)
-        cv2.circle(img, c[1], 2, (0,0,255),-1)
-        cv2.circle(img, c[2], 2, (0,0,255),-1)
-        cv2.circle(img, c[3], 2, (0,0,255),-1)
+        # cv2.circle(img, c[0], 2, (0,0,255),-1)
+        # cv2.circle(img, c[1], 2, (0,0,255),-1)
+        # cv2.circle(img, c[2], 2, (0,0,255),-1)
+        # cv2.circle(img, c[3], 2, (0,0,255),-1)
 
-        w = abs(corners[0][0] - corners[3][0])
-        h = abs(corners[0][1] - corners[1][1])
+        w = abs(c[0][0] - c[3][0])
+        h = abs(c[0][1] - c[1][1])
 
         return c, w, h, img
+
+    def compute_homography(self, w, h, c1):
+        c2 = np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(4, 2) # Points on Warped Image
+
+        H = cv2.getPerspectiveTransform(np.float32(c1), np.float32(c2))
+
+        return H
+
+    def rotate_image(self, image, angle):
+        image_center = tuple(np.array(image.shape[1::-1]) / 2)
+        rot_mat = cv2.getRotationMatrix2D(image_center, angle, 1.0)
+        result = cv2.warpAffine(image, rot_mat, image.shape[1::-1], flags=cv2.INTER_LINEAR)
+        return result
 
     def detect(self):
 
         video = cv2.VideoCapture(self.video_path)
-        ret, frame = video.read()
+        
         currentframe = 0
         ret = True
 
-        if(ret):
+        while(ret):
+            ret, frame = video.read()
             frame = cv2.resize(frame, dsize=None, fx=0.4, fy=0.4, interpolation=cv2.INTER_CUBIC)
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             dft_shift, frame_fft = self.fft(frame_gray)
             frame_fft_mask, edges = self.high_pass_filter(frame_gray, dft_shift)
-            corners, frame = self.get_corners(frame)
-
-            c = np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(4, 2) # Points on Warped Image
-
-            H = cv2.getPerspectiveTransform(np.float32(corners), np.float32(c))
-            print(H)
-
+            edges = self.normalize(edges)
+            
+            corners, w, h, frame = self.compute_corners(frame, 220)
+            H = self.compute_homography(w, h, corners)
             frame_ = cv2.warpPerspective(frame, H, (w, h))
 
+            frame_ = cv2.bitwise_not(frame_)
+            frame_[:5] = 0
+            frame_[:,:5] = 0
+            frame_[-5:] = 0
+            frame_[:,-5:] = 0
+            frame_ = self.rotate_image(frame_, 45)
+
+            corners, w, h, frame = self.compute_corners(frame_, 225)
+            H = self.compute_homography(w, h, corners)
+            frame_ = cv2.warpPerspective(frame, H, (w, h))
+            frame_ = cv2.bitwise_not(frame_)
 
             if(self.visualize):
                 cv2.imshow("Frame", frame)

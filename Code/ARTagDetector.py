@@ -19,6 +19,7 @@ import numpy as np
 import scipy as sp
 import argparse
 import matplotlib.pyplot as plt
+from skimage.filters import threshold_otsu
 
 sys.dont_write_bytecode = True
 
@@ -65,6 +66,15 @@ class ARTagDetector():
 
         img[img < thresh] = 0
         img[img >= thresh] = 255
+
+        # uncertainty_threshold = threshold_otsu(img)
+        # uncertainty_binary = img < uncertainty_threshold
+        # uncertainty_threshold_x = uncertainty_binary[:,:,0].astype(np.uint8)
+        # uncertainty_threshold_y = uncertainty_binary[:,:,1].astype(np.uint8)
+
+        # cv2.imshow("", self.normalize(uncertainty_threshold_x))
+        # cv2.waitKey(0)
+
         idx = np.where(img == 255)
         r = list(idx[0])
         c = list(idx[1])
@@ -104,29 +114,29 @@ class ARTagDetector():
         currentframe = 0
         ret = True
 
-        while(ret):
+        if(ret):
             ret, frame = video.read()
             frame = cv2.resize(frame, dsize=None, fx=0.4, fy=0.4, interpolation=cv2.INTER_CUBIC)
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             dft_shift, frame_fft = self.fft(frame_gray)
             frame_fft_mask, edges = self.high_pass_filter(frame_gray, dft_shift)
             edges = self.normalize(edges)
-            
-            corners, w, h, frame_ = self.compute_corners(frame, 220)
+
+            corners, w, h, frame_ = self.compute_corners(frame, 225)
             H = self.compute_homography(w, h, corners)
             frame_ = cv2.warpPerspective(frame, H, (w, h))
 
-            # frame_ = cv2.bitwise_not(frame_)
-            # frame_[:5] = 0
-            # frame_[:,:5] = 0
-            # frame_[-5:] = 0
-            # frame_[:,-5:] = 0
-            # frame_ = self.rotate_image(frame_, 45)
+            frame_ = cv2.bitwise_not(frame_)
+            frame_[:5] = 0
+            frame_[:,:5] = 0
+            frame_[-5:] = 0
+            frame_[:,-5:] = 0
+            frame_ = self.rotate_image(frame_, 45)
 
-            # corners, w, h, frame = self.compute_corners(frame_, 225)
-            # H = self.compute_homography(w, h, corners)
-            # frame_ = cv2.warpPerspective(frame, H, (w, h))
-            # frame_ = cv2.bitwise_not(frame_)
+            corners, w, h, frame = self.compute_corners(frame_, 225)
+            H = self.compute_homography(w, h, corners)
+            frame_ = cv2.warpPerspective(frame, H, (w, h))
+            frame_ = cv2.bitwise_not(frame_)
 
             if(self.visualize):
                 cv2.imshow("Frame", frame)
@@ -137,6 +147,12 @@ class ARTagDetector():
                 # cv2.imshow("Edges", self.normalize(edges))
                 # cv2.imshow("Corners", self.normalize(corners))
                 cv2.waitKey(0)
+
+            return frame_
+
+        def decode(self, img):
+
+            
 
 
 def main():

@@ -19,6 +19,7 @@ import numpy as np
 import scipy as sp
 import argparse
 import matplotlib.pyplot as plt
+from PIL import Image
 from skimage.filters import threshold_otsu
 
 sys.dont_write_bytecode = True
@@ -62,18 +63,7 @@ class ARTagDetector():
 
         return fshift_mask_mag, img_back
 
-    def compute_corners(self, img, thresh):
-
-        img[img < thresh] = 0
-        img[img >= thresh] = 255
-
-        # uncertainty_threshold = threshold_otsu(img)
-        # uncertainty_binary = img < uncertainty_threshold
-        # uncertainty_threshold_x = uncertainty_binary[:,:,0].astype(np.uint8)
-        # uncertainty_threshold_y = uncertainty_binary[:,:,1].astype(np.uint8)
-
-        # cv2.imshow("", self.normalize(uncertainty_threshold_x))
-        # cv2.waitKey(0)
+    def compute_corners(self, img):
 
         idx = np.where(img == 255)
         r = list(idx[0])
@@ -84,10 +74,10 @@ class ARTagDetector():
                        (c[r.index(max(r))], max(r)),
                        (max(c), r[c.index(max(c))])])
 
-        # cv2.circle(img, c[0], 2, (0,0,255),-1)
-        # cv2.circle(img, c[1], 2, (0,0,255),-1)
-        # cv2.circle(img, c[2], 2, (0,0,255),-1)
-        # cv2.circle(img, c[3], 2, (0,0,255),-1)
+        # cv2.circle(img, c[0], 3, (255),-1)
+        # cv2.circle(img, c[1], 3, (255),-1)
+        # cv2.circle(img, c[2], 3, (255),-1)
+        # cv2.circle(img, c[3], 3, (255),-1)
 
         w = abs(c[0][0] - c[3][0])
         h = abs(c[0][1] - c[1][1])
@@ -118,41 +108,41 @@ class ARTagDetector():
             ret, frame = video.read()
             frame = cv2.resize(frame, dsize=None, fx=0.4, fy=0.4, interpolation=cv2.INTER_CUBIC)
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            (thresh, frame_gray) = cv2.threshold(frame_gray, 220, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+            kernel = np.ones((5,5),np.uint8)
+            frame_gray = cv2.morphologyEx(frame_gray, cv2.MORPH_OPEN, kernel)
+
             dft_shift, frame_fft = self.fft(frame_gray)
             frame_fft_mask, edges = self.high_pass_filter(frame_gray, dft_shift)
             edges = self.normalize(edges)
+            edges[edges < 90] = 0
+            edges[edges >= 90] = 255
 
-            corners, w, h, frame_ = self.compute_corners(frame, 225)
+            corners, w, h, frame_ = self.compute_corners(edges)
+            mask = cv2.fillPoly(np.copy(frame_), pts = [corners], color =(255,255,255))
+            kernel = np.ones((9, 9), np.uint8)
+            mask = cv2.erode(mask, kernel) 
+            mask = cv2.bitwise_not(mask)
+
+            frame_ = cv2.bitwise_or(frame_gray, mask)
+            frame_ = cv2.bitwise_not(frame_)
+            corners, w, h, frame_ = self.compute_corners(frame_)
             H = self.compute_homography(w, h, corners)
             frame_ = cv2.warpPerspective(frame, H, (w, h))
-
-            frame_ = cv2.bitwise_not(frame_)
-            frame_[:5] = 0
-            frame_[:,:5] = 0
-            frame_[-5:] = 0
-            frame_[:,-5:] = 0
-            frame_ = self.rotate_image(frame_, 45)
-
-            corners, w, h, frame = self.compute_corners(frame_, 225)
-            H = self.compute_homography(w, h, corners)
-            frame_ = cv2.warpPerspective(frame, H, (w, h))
-            frame_ = cv2.bitwise_not(frame_)
 
             if(self.visualize):
                 cv2.imshow("Frame", frame)
-                cv2.imshow("Frame_", frame_)
-                # cv2.imshow("Frame Gray", frame_gray)
+                cv2.imshow("Frame_", self.normalize(frame_))
+                # cv2.imshow("Frame Gray", np.uint8(frame_gray))
+                # cv2.imshow("Mask", np.uint8(mask))
                 # cv2.imshow("FFT", self.normalize(frame_fft))
                 # cv2.imshow("FFT + Mask", self.normalize(frame_fft_mask))
                 # cv2.imshow("Edges", self.normalize(edges))
                 # cv2.imshow("Corners", self.normalize(corners))
                 cv2.waitKey(0)
 
-            return frame_
-
-        def decode(self, img):
-
-            
+        return frame_
 
 
 def main():

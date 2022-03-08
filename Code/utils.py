@@ -115,7 +115,7 @@ def projection_matrix(H, K):
 
     h1, h2, h3 = H[:,0], H[:,1], H[:,2]
     K_inv = np.linalg.inv(K) 
-    lamda = 2/(np.linalg.norm(K_inv.dot(h1)) + np.linalg.norm(K_inv.dot(h2)) )
+    lamda = 2/(np.linalg.norm(K_inv.dot(h1)) + np.linalg.norm(K_inv.dot(h2)))
     
     B_ = lamda*K_inv.dot(H)
 
@@ -131,7 +131,7 @@ def projection_matrix(H, K):
     P = K.dot(RTmatrix)
     return P
 
-def computer_cube_corners(P, cube_size):
+def compute_cube_corners(P, cube_size):
 
     x1,y1,z1 = P.dot([0,0,0,1])
     x2,y2,z2 = P.dot([0,cube_size,0,1])
@@ -177,7 +177,7 @@ def homography(p1, p2):
     X,Y = p1[:,0],p1[:,1]
     Xp,Yp =  p2[:,0], p2[:,1]
 
-    startFlag=1
+    startFlag = 1
 
     for (x,y,xp,yp) in zip(X,Y,Xp,Yp):
 

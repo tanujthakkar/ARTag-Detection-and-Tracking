@@ -116,6 +116,7 @@ class ARTag():
         corners, w, h, frame_ = self.compute_corners(frame_)
         H = self.compute_homography(w, h, corners)
         ar_tag = warp_perspective(frame_gray, H, w, h)
+        ar_tag = np.flip(ar_tag, axis=1)
 
         cv2.polylines(frame, [corners], True, (0,0,255))
 
@@ -149,7 +150,7 @@ class ARTag():
         blocks[blocks < 255] = 0
         blocks[blocks >= 255] = 1
 
-        tag_value = ((blocks[5] * 8) + (blocks[6] * 4) + (blocks[10] * 2) + (blocks[9] * 1))
+        tag_value = ((blocks[5] * 1) + (blocks[6] * 2) + (blocks[10] * 4) + (blocks[9] * 8))
 
         ar_tag = draw_grid(ar_tag, 5)
 

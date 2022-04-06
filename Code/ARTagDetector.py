@@ -109,7 +109,7 @@ class ARTag():
         mask = cv2.fillPoly(np.copy(frame_gray), pts = [corners], color =(255,255,255))
         kernel = np.ones((9, 9), np.uint8)
         mask = cv2.erode(mask, kernel) 
-        mask = cv2.bitwise_not(mask)
+        mask = cv2.bitwise_not(anaconda3mask)
 
         frame_ = cv2.bitwise_or(frame_gray, mask)
         frame_ = cv2.bitwise_not(frame_)
@@ -265,7 +265,7 @@ class ARTag():
 
                 cv2.waitKey(1)
             except Exception as e:
-                print(e)
+                # print(e)
                 pass
 
         cv2.destroyAllWindows()
@@ -278,7 +278,6 @@ def main():
     Parser.add_argument('--VideoPath', type=str, default="../Data/1tagvideo.mp4", help='Path to the video file')
     Parser.add_argument('--TestudoPath', type=str, default="../Data/testudo.png", help='Path to the testudo image')
     Parser.add_argument('--SavePath', type=str, default="../Results/", help='Path to the results folder')
-    Parser.add_argument('--SaveResult', action='store_true', help='Toggle to save results')
     Parser.add_argument('--Visualize', action='store_true', help='Toggle visualization')
     
     Args = Parser.parse_args()
@@ -286,7 +285,6 @@ def main():
     VideoPath = Args.VideoPath
     TestudoPath = Args.TestudoPath
     SavePath = Args.SavePath
-    SaveResult = Args.SaveResult
     Visualize = Args.Visualize
 
     AR = ARTag()

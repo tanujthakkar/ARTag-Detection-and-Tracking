@@ -16,6 +16,7 @@ Instructions -
            |- ARTagDetector.py
            |- ExtraCredit.py
            |- utils.py
+          |- Results
           |- Report.pdf
           |- ReadMe.md
 
@@ -34,6 +35,9 @@ Instructions -
 4. Run the following code to visualize the extra credit results -
 
 		python ExtraCredit.py
+
+		--FilePath: Path to the input image
+		--ResultsPath: Path to the results folder
 
 5. Here are the links to the videos generated for questions 2a and 2b,
 	

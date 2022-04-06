@@ -152,6 +152,7 @@ def compute_cube_corners(P, cube_size):
 def draw_cube(frame, corners):
     
     frame = np.copy(frame)
+    
     for xy_pts in corners:
         x,y = xy_pts
         cv2.circle(frame,(x,y), 3, (0,0,255), -1)
